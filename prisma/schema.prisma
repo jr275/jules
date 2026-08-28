@@ -331,17 +331,46 @@ model AgentKnowledgeSource {
 }
 
 model AgentTrigger {
-  id            String   @id @default(uuid())
-  agentId       String
-  type          String   // MANUAL, SCHEDULE, EVENT, WEBHOOK, THRESHOLD, ANOMALY, DATA_CHANGE
-  configuration String   @default("{}")
-  status        String   @default("ACTIVE")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id               String            @id @default(uuid())
+  tenantId         String
+  agentId          String
+  type             String            // MANUAL, SCHEDULE, EVENT
+  status           String            @default("ENABLED") // ENABLED, DISABLED
+  timezone         String            @default("UTC")
+  cronExpression   String?
+  misfirePolicy    String            @default("RUN_ONCE") // SKIP, RUN_ONCE, CATCH_UP
+  configuration    String            @default("{}") // Event topic, conditions JSON
+  lastTriggeredAt  DateTime?
+  nextTriggerAt    DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  agent         Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent            Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  occurrences      TriggerOccurrence[]
 
+  @@index([tenantId])
   @@index([agentId])
+  @@index([status])
+  @@index([nextTriggerAt])
+}
+
+model TriggerOccurrence {
+  id             String       @id @default(uuid())
+  tenantId       String
+  triggerId      String
+  occurrenceKey  String       @unique // triggerId + scheduledFor (UTC ISO)
+  scheduledFor   DateTime
+  status         String       @default("QUEUED") // QUEUED, EXECUTED, SKIPPED
+  jobId          String?
+  createdAt      DateTime     @default(now())
+
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  trigger        AgentTrigger @relation(fields: [triggerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([triggerId])
+  @@index([occurrenceKey])
 }
 
 model Task {
