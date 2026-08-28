@@ -1,5 +1,5 @@
 import { AppError } from './types';
-import { ConnectorService } from './connectors';
+import { ConnectorRegistry } from './connectors';
 
 export interface ToolExecutionContext {
   tenantId: string;
@@ -17,6 +17,8 @@ export interface ToolDefinition {
   outputSchema: Record<string, unknown>;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   requiredPermission: string;
+  providerId?: string;       // Linked Connector provider ID (e.g. GOOGLE_SHEETS)
+  capabilityId?: string;     // Linked Capability ID (e.g. spreadsheet.read)
   execute?: (input: Record<string, unknown>, context: ToolExecutionContext) => Promise<Record<string, unknown>>;
 }
 
@@ -25,7 +27,6 @@ export class ToolRegistry {
 
   static registerTool(tool: ToolDefinition): void {
     this.tools.set(tool.id, tool);
-    // Also register by name slug for flexibility
     const nameSlug = tool.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     this.tools.set(nameSlug, tool);
   }
@@ -53,11 +54,19 @@ export class ToolRegistry {
       throw new AppError('VALIDATION_ERROR', `Invalid input object passed to tool '${tool.name}'`);
     }
 
+    // 1. If tool declares explicit execute handler, invoke it directly
     if (tool.execute) {
       return await tool.execute(input, context);
     }
 
-    // Default built-in tool behaviors for standard tools
+    // 2. If tool is coupled to a Connector via providerId & capabilityId, resolve via ConnectorRegistry
+    if (tool.providerId && tool.capabilityId && ConnectorRegistry.has(tool.providerId)) {
+      const adapter = ConnectorRegistry.get(tool.providerId);
+      const credentialRef = (input.credentialRef as string) || 'vault-ref-google-sheets-001';
+      return await adapter.executeCapability(context.tenantId, credentialRef, tool.capabilityId, input);
+    }
+
+    // 3. Built-in fallback handlers for standard domain tools
     if (tool.id === 'tool-bank-query' || tool.name.includes('Bank Account Balance')) {
       return {
         totalCashUSD: 4820000,
@@ -66,23 +75,6 @@ export class ToolRegistry {
           { accountName: 'JPMorgan Chase Checking #4829', balanceUSD: 2500000, yieldAPY: 0.0 },
           { accountName: 'Citi Treasury Liquidity #9102', balanceUSD: 2320000, yieldAPY: 0.053 },
         ],
-      };
-    }
-
-    if (tool.id === 'tool-google-sheet-read' || tool.name.includes('Google Sheets Data Reader')) {
-      const sheetId = (input.sheetId as string) || 'FY26_Liquidity_Forecast_Q1';
-      const credentialRef = (input.credentialRef as string) || 'vault-ref-google-001';
-
-      const sheetResult = await ConnectorService.fetchGoogleSheetData(
-        context.tenantId,
-        credentialRef,
-        sheetId
-      );
-
-      return {
-        sheetId,
-        source: sheetResult.source,
-        rows: sheetResult.rows,
       };
     }
 
@@ -107,7 +99,7 @@ export class ToolRegistry {
   }
 }
 
-// Initial Registered Standard Tools
+// Initial Registered Standard Tools mapped to Connector capabilities
 ToolRegistry.registerTool({
   id: 'tool-bank-query',
   name: 'Bank Account Balance Query',
@@ -124,10 +116,12 @@ ToolRegistry.registerTool({
   name: 'Google Sheets Data Reader',
   description: 'Reads rows, ranges, and formulas from connected Google Sheets',
   category: 'GOOGLE',
-  inputSchema: { sheetId: 'string', range: 'string' },
+  inputSchema: { spreadsheetId: 'string', range: 'string' },
   outputSchema: { rows: 'array' },
   riskLevel: 'LOW',
   requiredPermission: 'VIEW',
+  providerId: 'GOOGLE_SHEETS',
+  capabilityId: 'spreadsheet.read',
 });
 
 ToolRegistry.registerTool({

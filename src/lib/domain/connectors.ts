@@ -3,6 +3,26 @@ import { CredentialManager, OAuthTokenPayload } from './credentials';
 
 export type ConnectorCategory = 'GOOGLE' | 'MICROSOFT' | 'FINANCE' | 'BUSINESS' | 'DATA';
 
+export interface ConnectorCapability {
+  id: string; // e.g. "spreadsheet.read"
+  name: string;
+  description: string;
+  requiredScopes: string[];
+}
+
+export interface ConnectorAdapter {
+  providerId: string;
+  name: string;
+  category: ConnectorCategory;
+  authMethod: 'OAUTH2' | 'API_KEY' | 'MTLS' | 'DATABASE_URL' | 'FILE_STREAM';
+  capabilities: ConnectorCapability[];
+  authenticate?: (tenantId: string, payload: Record<string, unknown>) => Promise<string>;
+  refreshCredentials?: (tenantId: string, credentialRef: string) => Promise<boolean>;
+  healthCheck: (tenantId: string, credentialRef?: string | null) => Promise<{ status: 'CONNECTED' | 'EXPIRED' | 'NOT_CONNECTED' | 'ERROR'; message: string }>;
+  executeCapability: (tenantId: string, credentialRef: string, capabilityId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  revoke?: (tenantId: string, credentialRef: string) => Promise<boolean>;
+}
+
 export interface ConnectorDefinition {
   type: string;
   category: ConnectorCategory;
@@ -70,6 +90,88 @@ export const SUPPORTED_CONNECTORS: ConnectorDefinition[] = [
     requiredScopes: ['ledger.read', 'invoices.read'],
   },
 ];
+
+/**
+ * Reference Google Sheets Adapter conforming to ConnectorAdapter
+ */
+export class GoogleSheetsAdapter implements ConnectorAdapter {
+  public providerId = 'GOOGLE_SHEETS';
+  public name = 'Google Sheets Connector';
+  public category: ConnectorCategory = 'GOOGLE';
+  public authMethod: 'OAUTH2' = 'OAUTH2';
+
+  public capabilities: ConnectorCapability[] = [
+    {
+      id: 'spreadsheet.read',
+      name: 'Read Spreadsheet Values',
+      description: 'Read rows and cell ranges from Google Sheets spreadsheets',
+      requiredScopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    },
+  ];
+
+  public async healthCheck(tenantId: string, credentialRef?: string | null) {
+    if (!credentialRef) {
+      return { status: 'NOT_CONNECTED' as const, message: 'Google Sheets connector is not configured' };
+    }
+    const status = await CredentialManager.checkStatus(tenantId, credentialRef);
+    return {
+      status: status === 'CONNECTED' ? ('CONNECTED' as const) : ('NOT_CONNECTED' as const),
+      message: status === 'CONNECTED' ? 'Google OAuth credentials active' : 'Credential missing or revoked',
+    };
+  }
+
+  public async executeCapability(
+    tenantId: string,
+    credentialRef: string,
+    capabilityId: string,
+    params: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    if (capabilityId !== 'spreadsheet.read') {
+      throw new AppError('AUTHORIZATION_ERROR', `Capability '${capabilityId}' is not supported by GoogleSheetsAdapter`);
+    }
+
+    const spreadsheetId = (params.spreadsheetId as string) || (params.sheetId as string) || 'FY26_Liquidity_Forecast_Q1';
+    const range = (params.range as string) || 'A1:Z100';
+
+    const sheetResult = await ConnectorService.fetchGoogleSheetData(tenantId, credentialRef, spreadsheetId, range);
+    return {
+      spreadsheetId,
+      range,
+      source: sheetResult.source,
+      rows: sheetResult.rows,
+    };
+  }
+}
+
+/**
+ * Central Connector Registry for registering and resolving Connector Adapters dynamically
+ */
+export class ConnectorRegistry {
+  private static adapters: Map<string, ConnectorAdapter> = new Map();
+
+  static register(adapter: ConnectorAdapter): void {
+    this.adapters.set(adapter.providerId.toUpperCase(), adapter);
+  }
+
+  static get(providerId: string): ConnectorAdapter {
+    const adapter = this.adapters.get(providerId.toUpperCase());
+    if (!adapter) {
+      throw new AppError('NOT_FOUND', `ConnectorAdapter for provider '${providerId}' is not registered in ConnectorRegistry`);
+    }
+    return adapter;
+  }
+
+  static has(providerId: string): boolean {
+    return this.adapters.has(providerId.toUpperCase());
+  }
+
+  static listAdapters(): ConnectorAdapter[] {
+    return Array.from(this.adapters.values());
+  }
+}
+
+// Register Reference Adapters
+ConnectorRegistry.register(new GoogleSheetsAdapter());
 
 export class ConnectorService {
   /**
