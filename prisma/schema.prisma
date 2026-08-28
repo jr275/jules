@@ -825,3 +825,18 @@ model SystemHeartbeat {
   @@index([status])
   @@index([lastHeartbeatAt])
 }
+
+
+model CredentialVault {
+  id               String   @id @default(uuid())
+  tenantId         String
+  keyRef           String
+  encryptedPayload String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, keyRef])
+  @@index([tenantId])
+}

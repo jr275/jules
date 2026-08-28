@@ -9,6 +9,7 @@
     "worker": "npx tsx src/scripts/worker.ts",
     "lint": "next lint",
     "test": "vitest run",
+    "test:production-readiness": "vitest run tests/production.readiness.test.ts",
     "test:real-llm": "vitest run tests/runtime.real-provider.test.ts",
     "test:real-google": "vitest run tests/connectors.google.real.test.ts",
     "test:real-embeddings": "vitest run tests/knowledge.rag.real.test.ts",
