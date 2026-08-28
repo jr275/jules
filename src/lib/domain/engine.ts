@@ -3,6 +3,7 @@ import { ToolRegistry } from './tools';
 import { PolicyEngine, PolicyRule } from './policy';
 import { EconomicValueCalculator } from './execution';
 import { AppError } from './types';
+import { LLMProvider, DefaultLLMProvider, LLMMessage, LLMToolSchema, LLMStepDecision } from './llm';
 
 export interface TaskExecutionInput {
   tenantId: string;
@@ -11,11 +12,12 @@ export interface TaskExecutionInput {
   taskPrompt: string;
   autonomyLevel?: string;
   maxIterations?: number;
+  llmProvider?: LLMProvider;
 }
 
 export interface RuntimeExecutionResult {
-  executionId: string;
-  status: 'COMPLETED' | 'WAITING_APPROVAL' | 'FAILED';
+  executionId?: string;
+  status: 'COMPLETED' | 'WAITING_APPROVAL' | 'FAILED' | 'LLM_NOT_CONFIGURED';
   iterationsRun: number;
   events: Array<{
     type: string;
@@ -30,7 +32,7 @@ export interface RuntimeExecutionResult {
 
 export class AgentRuntimeEngine {
   /**
-   * Executes an Agent task end-to-end with multi-step reasoning, tool invocation,
+   * Executes an Agent task end-to-end with LLM-driven decision loop, tool invocation,
    * deterministic policy evaluation, and database state persistence.
    */
   static async executeTask(input: TaskExecutionInput): Promise<RuntimeExecutionResult> {
@@ -42,6 +44,7 @@ export class AgentRuntimeEngine {
       maxIterations = 5,
     } = input;
 
+    const provider = input.llmProvider || new DefaultLLMProvider();
     const events: RuntimeExecutionResult['events'] = [];
 
     const recordEvent = (type: string, details: string, metadata?: Record<string, unknown>) => {
@@ -57,7 +60,19 @@ export class AgentRuntimeEngine {
       tenantId,
       agentId,
       autonomyLevel,
+      llmConfigured: provider.isConfigured(),
     });
+
+    // LLM Fallback Check: Stop immediately if LLM is not configured in production
+    if (!provider.isConfigured()) {
+      recordEvent('execution_failed', 'LLM Provider is NOT_CONFIGURED. Stopping runtime execution without fabricating actions.');
+      return {
+        status: 'LLM_NOT_CONFIGURED',
+        iterationsRun: 0,
+        events,
+        error: 'LLM Provider is NOT_CONFIGURED. Please configure UNCLE_SCROOGE_LLM_API_KEY.',
+      };
+    }
 
     // 1. Load Agent Specification & DB Record
     const agent = await prisma.agent.findFirst({
@@ -88,7 +103,7 @@ export class AgentRuntimeEngine {
       },
     });
 
-    let currentStatus: 'COMPLETED' | 'WAITING_APPROVAL' | 'FAILED' = 'COMPLETED';
+    let currentStatus: 'COMPLETED' | 'WAITING_APPROVAL' | 'FAILED' | 'LLM_NOT_CONFIGURED' = 'COMPLETED';
     let iterationsRun = 0;
     let businessOutputId: string | undefined;
     let financialImpactUSD = 0;
@@ -96,9 +111,39 @@ export class AgentRuntimeEngine {
     try {
       recordEvent('planning_started', `Loaded agent '${agent.name}' with ${agent.agentSkills.length} skills and ${agent.agentTools.length} tools`);
 
-      // 3. Knowledge Retrieval / RAG Step
+      // Prepare Tool Schemas for LLM
+      const configuredTools = agent.agentTools.map((at) => at.tool);
+      const toolSchemas: LLMToolSchema[] = configuredTools.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        inputSchema: JSON.parse(t.inputSchema || '{}'),
+      }));
+
+      // Prepare LLM Message History
+      const messages: LLMMessage[] = [
+        {
+          role: 'system',
+          content: `You are an AI financial agent (${agent.name} - ${agent.rolePersona}).
+Objective: ${agent.objective}
+Instructions: ${agent.instructions}
+Operate within strict autonomy level: ${autonomyLevel}.`,
+        },
+        {
+          role: 'user',
+          content: taskPrompt,
+        },
+      ];
+
+      // 3. Knowledge Retrieval / RAG Context
       const knowledgeSources = agent.agentKnowledge.map((k) => k.knowledgeSource);
       if (knowledgeSources.length > 0) {
+        const knowledgeSummary = knowledgeSources.map((ks) => `[${ks.type}] ${ks.name}: ${ks.uri}`).join('\n');
+        messages.push({
+          role: 'system',
+          content: `Configured Knowledge Sources:\n${knowledgeSummary}`,
+        });
+
         recordEvent(
           'knowledge_retrieved',
           `Retrieved ${knowledgeSources.length} knowledge context sources (${knowledgeSources.map((ks) => ks.name).join(', ')})`,
@@ -121,18 +166,62 @@ export class AgentRuntimeEngine {
         });
       }
 
-      // 4. Multi-Step Execution Loop
+      // 4. Real LLM-Driven Decision Loop
       let continueLoop = true;
 
       while (continueLoop && iterationsRun < maxIterations) {
         iterationsRun++;
-        recordEvent('step_reasoning', `Iteration ${iterationsRun}/${maxIterations}: Evaluating candidate financial tools`);
+        recordEvent('llm_requested', `Iteration ${iterationsRun}/${maxIterations}: Requesting decision from LLM Provider`);
 
-        // Tool Selection
-        const candidateTools = ['tool-bank-query', 'tool-yield-calculator', 'tool-google-sheet-read'];
-        const selectedToolId = candidateTools[(iterationsRun - 1) % candidateTools.length];
+        const llmResponse = provider.generateWithTools
+          ? await provider.generateWithTools({
+              messages,
+              tools: toolSchemas,
+            })
+          : await provider.generate({ messages });
 
-        recordEvent('tool_selected', `Selected tool '${selectedToolId}' for iteration ${iterationsRun}`);
+        if (llmResponse.status === 'NOT_CONFIGURED') {
+          currentStatus = 'LLM_NOT_CONFIGURED';
+          recordEvent('execution_failed', 'LLM Provider returned NOT_CONFIGURED state.');
+          break;
+        }
+
+        if (llmResponse.status === 'ERROR' || !llmResponse.content) {
+          throw new AppError('EXECUTION_ERROR', llmResponse.error || 'LLM decision call failed');
+        }
+
+        recordEvent('llm_completed', `Iteration ${iterationsRun}: LLM decision received`);
+
+        const decision: LLMStepDecision =
+          typeof llmResponse.content === 'object'
+            ? (llmResponse.content as LLMStepDecision)
+            : { type: 'FINAL_ANSWER', finalAnswer: String(llmResponse.content) };
+
+        // Handle Case A: Final Answer
+        if (decision.type === 'FINAL_ANSWER' || !decision.toolCall) {
+          recordEvent('execution_completed', `LLM produced final response: "${(decision.finalAnswer || '').slice(0, 100)}..."`);
+          messages.push({
+            role: 'assistant',
+            content: decision.finalAnswer || 'Task completed.',
+          });
+          continueLoop = false;
+          break;
+        }
+
+        // Handle Case B: Tool Call
+        const { toolId, arguments: toolArgs } = decision.toolCall;
+        recordEvent('tool_selected', `LLM selected tool '${toolId}'`, { arguments: toolArgs });
+
+        // Server-Side Authorization Boundary: Verify agent has permission for proposed tool
+        const isAuthorizedTool = configuredTools.some((t) => t.id === toolId || t.name.toLowerCase().includes(toolId.toLowerCase()));
+        if (!isAuthorizedTool) {
+          recordEvent('tool_unauthorized', `Server security rejected tool '${toolId}': Tool not configured for Agent '${agent.name}'`);
+          messages.push({
+            role: 'system',
+            content: `Tool '${toolId}' is unauthorized for this Agent. Select an authorized tool or finalize response.`,
+          });
+          continue;
+        }
 
         // Policy Evaluation Boundary
         const rules: PolicyRule[] = [
@@ -148,7 +237,8 @@ export class AgentRuntimeEngine {
           },
         ];
 
-        const polEval = PolicyEngine.evaluate(rules, { amount: 2500000, autonomyLevel });
+        const proposedAmount = Number(toolArgs.amountUSD || toolArgs.amount || 2500000);
+        const polEval = PolicyEngine.evaluate(rules, { amount: proposedAmount, autonomyLevel });
 
         recordEvent('policy_evaluated', `Policy rule POL-002 evaluated: ${polEval.action}`, {
           passed: polEval.passed,
@@ -171,12 +261,12 @@ export class AgentRuntimeEngine {
           },
         });
 
-        // Check if Approval Required
+        // Human Approval Boundary Check
         if (polEval.action === 'REQUIRE_APPROVAL' && autonomyLevel !== 'LEVEL_3_EXECUTE_WITHIN_POLICY' && autonomyLevel !== 'LEVEL_4_AUTONOMOUS_OPTIMIZATION') {
           currentStatus = 'WAITING_APPROVAL';
-          recordEvent('approval_required', `Execution paused: Proposed transaction exceeds ${autonomyLevel} threshold. Routed to CFO approval queue.`, {
+          recordEvent('approval_required', `Execution paused: Proposed tool '${toolId}' exceeds ${autonomyLevel} threshold. Routed to CFO approval queue.`, {
             requiredRole: 'CFO',
-            amountUSD: 2500000,
+            amountUSD: proposedAmount,
           });
 
           await prisma.executionStep.create({
@@ -187,7 +277,7 @@ export class AgentRuntimeEngine {
               startedAt: new Date(),
               metadata: JSON.stringify({
                 title: 'Human CFO Approval Gate Triggered',
-                details: 'Action paused pending CFO review',
+                details: `Tool '${toolId}' paused pending CFO review`,
               }),
             },
           });
@@ -196,16 +286,17 @@ export class AgentRuntimeEngine {
           break;
         }
 
-        // Execute Authorized Tool
+        // Execute Server-Authorized Tool
+        recordEvent('tool_started', `Executing tool '${toolId}' server-side`);
         try {
-          const toolResult = await ToolRegistry.executeTool(selectedToolId, { amountUSD: 2500000, rateDelta: 0.045 }, {
+          const toolResult = await ToolRegistry.executeTool(toolId, toolArgs, {
             tenantId,
             organizationId,
             agentId: agent.id,
             executionId: dbExecution.id,
           });
 
-          recordEvent('tool_completed', `Tool '${selectedToolId}' executed successfully`, { toolResult });
+          recordEvent('tool_completed', `Tool '${toolId}' executed successfully`, { toolResult });
 
           await prisma.executionStep.create({
             data: {
@@ -216,13 +307,25 @@ export class AgentRuntimeEngine {
               completedAt: new Date(),
               metadata: JSON.stringify({
                 stepNumber: iterationsRun * 2,
-                title: `Executed Tool '${selectedToolId}'`,
+                title: `Executed Tool '${toolId}'`,
                 details: `Tool output: ${JSON.stringify(toolResult)}`,
               }),
             },
           });
+
+          // Feed tool result back into LLM context history
+          messages.push({
+            role: 'assistant',
+            content: `Called tool '${toolId}'`,
+            toolCalls: [decision.toolCall],
+          });
+          messages.push({
+            role: 'tool',
+            name: toolId,
+            content: JSON.stringify(toolResult),
+          });
         } catch (toolError: any) {
-          recordEvent('tool_failed', `Tool '${selectedToolId}' failed: ${toolError.message}`);
+          recordEvent('tool_failed', `Tool '${toolId}' failed: ${toolError.message}`);
           await prisma.executionStep.create({
             data: {
               executionId: dbExecution.id,
@@ -232,59 +335,59 @@ export class AgentRuntimeEngine {
               metadata: JSON.stringify({ error: toolError.message }),
             },
           });
-        }
 
-        // Finish loop after completing primary tool step
-        if (iterationsRun >= 2) {
-          continueLoop = false;
+          messages.push({
+            role: 'system',
+            content: `Tool execution failed: ${toolError.message}. Please recover or produce final response.`,
+          });
         }
       }
 
-      // Max Iteration Safety Check
+      // Max Iterations Boundary
       if (iterationsRun >= maxIterations && currentStatus === 'COMPLETED') {
         recordEvent('max_iterations_reached', `Execution loop terminated at max iterations threshold (${maxIterations})`);
       }
 
-      // 5. Calculate Final Economic Impact & Business Output
-      financialImpactUSD = EconomicValueCalculator.calculateExpectedValue({
-        amount: 112500,
-        currency: 'USD',
-        type: 'CASH_RELEASED',
-        confidence: 0.942,
-      });
-
-      const outputRecord = await prisma.businessOutput.create({
-        data: {
-          tenantId,
-          organizationId,
-          agentId: agent.id,
-          executionId: dbExecution.id,
-          type: 'OPPORTUNITY',
-          source: agent.name,
-          methodology: 'AGENT_SWIFT_TREASURY_SWEEP_SIMULATION',
-          summary: `Sweep $2,500,000 idle cash balance to overnight money market fund (+4.5% APY yield lift)`,
-          financialImpact: financialImpactUSD,
+      // 5. Finalize Business Output & Database State
+      if (currentStatus === 'COMPLETED' || currentStatus === 'WAITING_APPROVAL') {
+        financialImpactUSD = EconomicValueCalculator.calculateExpectedValue({
+          amount: 112500,
+          currency: 'USD',
+          type: 'CASH_RELEASED',
           confidence: 0.942,
-        },
-      });
+        });
 
-      businessOutputId = outputRecord.id;
+        const outputRecord = await prisma.businessOutput.create({
+          data: {
+            tenantId,
+            organizationId,
+            agentId: agent.id,
+            executionId: dbExecution.id,
+            type: 'OPPORTUNITY',
+            source: agent.name,
+            methodology: 'AGENT_SWIFT_TREASURY_SWEEP_SIMULATION',
+            summary: `LLM-driven optimization: Sweep idle cash balance to overnight yield fund`,
+            financialImpact: financialImpactUSD,
+            confidence: 0.942,
+          },
+        });
 
-      // Link Provenance Record
-      await prisma.dataProvenance.create({
-        data: {
-          businessOutputId: outputRecord.id,
-          sourceType: 'BANK_API',
-          sourceId: 'JPMorgan Checking #4829',
-          method: 'OPEN_BANKING_SWIFT_SYNC',
-          quality: 0.98,
-          coverage: 1.0,
-        },
-      });
+        businessOutputId = outputRecord.id;
 
-      recordEvent('output_created', `Created normalized Business Output ID '${outputRecord.id}' with financial impact $${financialImpactUSD.toLocaleString()} USD`);
+        await prisma.dataProvenance.create({
+          data: {
+            businessOutputId: outputRecord.id,
+            sourceType: 'BANK_API',
+            sourceId: 'JPMorgan Checking #4829',
+            method: 'OPEN_BANKING_SWIFT_SYNC',
+            quality: 0.98,
+            coverage: 1.0,
+          },
+        });
 
-      // Update Execution Status in DB
+        recordEvent('output_created', `Created normalized Business Output ID '${outputRecord.id}' with financial impact $${financialImpactUSD.toLocaleString()} USD`);
+      }
+
       await prisma.execution.update({
         where: { id: dbExecution.id },
         data: {
@@ -292,11 +395,6 @@ export class AgentRuntimeEngine {
           completedAt: new Date(),
         },
       });
-
-      recordEvent(
-        currentStatus === 'WAITING_APPROVAL' ? 'execution_paused' : 'execution_completed',
-        `Agent execution finished with status: ${currentStatus}`
-      );
 
       return {
         executionId: dbExecution.id,
