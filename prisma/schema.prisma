@@ -693,3 +693,22 @@ model DataProvenance {
 
   @@index([businessOutputId])
 }
+
+model KnowledgeChunk {
+  id                String          @id @default(uuid())
+  tenantId          String
+  knowledgeSourceId String
+  chunkIndex        Int
+  content           String
+  contentHash       String
+  embeddingJson     String          @default("[]") // Json array of float embeddings
+  metadata          String          @default("{}") // Source, section, page numbers
+  createdAt         DateTime        @default(now())
+
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  knowledgeSource    KnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([knowledgeSourceId])
+  @@index([contentHash])
+}
