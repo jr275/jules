@@ -1,4 +1,5 @@
 import { AppError } from './types';
+import { ConnectorService } from './connectors';
 
 export interface ToolExecutionContext {
   tenantId: string;
@@ -69,14 +70,19 @@ export class ToolRegistry {
     }
 
     if (tool.id === 'tool-google-sheet-read' || tool.name.includes('Google Sheets Data Reader')) {
+      const sheetId = (input.sheetId as string) || 'FY26_Liquidity_Forecast_Q1';
+      const credentialRef = (input.credentialRef as string) || 'vault-ref-google-001';
+
+      const sheetResult = await ConnectorService.fetchGoogleSheetData(
+        context.tenantId,
+        credentialRef,
+        sheetId
+      );
+
       return {
-        sheetTitle: 'FY26_Liquidity_Forecast_Q1.xlsx',
-        lastUpdated: new Date().toISOString(),
-        rows: [
-          { category: 'Operating Buffer Target', amountUSD: 500000 },
-          { category: 'Surplus Uninvested Balance', amountUSD: 2000000 },
-          { category: 'Target Money Market Yield APY', rate: 0.053 },
-        ],
+        sheetId,
+        source: sheetResult.source,
+        rows: sheetResult.rows,
       };
     }
 

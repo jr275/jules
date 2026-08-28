@@ -2,6 +2,14 @@ import { AppError } from './types';
 
 const vaultStore = new Map<string, string>();
 
+export interface OAuthTokenPayload {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  tokenType?: string;
+  scope?: string;
+}
+
 export class CredentialManager {
   static async storeSecret(
     tenantId: string,
@@ -24,6 +32,28 @@ export class CredentialManager {
     return vaultStore.get(fullKey) || null;
   }
 
+  static async storeOAuthTokens(
+    tenantId: string,
+    keyRef: string,
+    tokens: OAuthTokenPayload
+  ): Promise<string> {
+    const jsonStr = JSON.stringify(tokens);
+    return this.storeSecret(tenantId, keyRef, jsonStr);
+  }
+
+  static async getOAuthTokensServerOnly(
+    tenantId: string,
+    keyRef: string
+  ): Promise<OAuthTokenPayload | null> {
+    const raw = await this.getSecretServerOnly(tenantId, keyRef);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as OAuthTokenPayload;
+    } catch {
+      return null;
+    }
+  }
+
   static async checkStatus(
     tenantId: string,
     keyRef?: string | null
@@ -34,7 +64,7 @@ export class CredentialManager {
   }
 
   static sanitizePayload<T extends Record<string, unknown>>(payload: T): T {
-    const sensitiveKeys = ['password', 'secret', 'apikey', 'token', 'privatekey', 'authheader', 'credential'];
+    const sensitiveKeys = ['password', 'secret', 'apikey', 'token', 'privatekey', 'authheader', 'credential', 'accesstoken', 'refreshtoken'];
     const sanitized = { ...payload };
 
     for (const key of Object.keys(sanitized)) {
