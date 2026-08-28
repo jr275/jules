@@ -39,22 +39,34 @@ export class EconomicValueCalculator {
   }
 }
 
+export type ExtendedExecutionStatus =
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'WAITING_APPROVAL'
+  | 'WAITING_TOOL'
+  | 'WAITING_RETRY'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
 export class ExecutionStateMachine {
-  private static VALID_TRANSITIONS: Record<ExecutionStatus, ExecutionStatus[]> = {
-    PENDING: ['RUNNING', 'CANCELLED', 'FAILED'],
-    RUNNING: ['WAITING_APPROVAL', 'COMPLETED', 'FAILED', 'CANCELLED'],
+  private static VALID_TRANSITIONS: Record<ExtendedExecutionStatus, ExtendedExecutionStatus[]> = {
+    QUEUED: ['RUNNING', 'CANCELLED', 'FAILED'],
+    RUNNING: ['WAITING_APPROVAL', 'WAITING_TOOL', 'WAITING_RETRY', 'COMPLETED', 'FAILED', 'CANCELLED'],
     WAITING_APPROVAL: ['RUNNING', 'COMPLETED', 'CANCELLED', 'FAILED'],
+    WAITING_TOOL: ['RUNNING', 'WAITING_RETRY', 'COMPLETED', 'CANCELLED', 'FAILED'],
+    WAITING_RETRY: ['RUNNING', 'CANCELLED', 'FAILED'],
     COMPLETED: [],
-    FAILED: ['PENDING'],
+    FAILED: ['QUEUED', 'RUNNING'],
     CANCELLED: [],
   };
 
-  static canTransition(current: ExecutionStatus, next: ExecutionStatus): boolean {
+  static canTransition(current: ExtendedExecutionStatus, next: ExtendedExecutionStatus): boolean {
     const allowed = this.VALID_TRANSITIONS[current] || [];
     return allowed.includes(next);
   }
 
-  static transition(current: ExecutionStatus, next: ExecutionStatus): ExecutionStatus {
+  static transition(current: ExtendedExecutionStatus, next: ExtendedExecutionStatus): ExtendedExecutionStatus {
     if (!this.canTransition(current, next)) {
       throw new AppError(
         'EXECUTION_ERROR',
@@ -62,5 +74,14 @@ export class ExecutionStateMachine {
       );
     }
     return next;
+  }
+
+  /**
+   * Classifies execution errors into Retryable vs Non-retryable
+   */
+  static isRetryableError(error: Error | string): boolean {
+    const message = (typeof error === 'string' ? error : error.message || '').toLowerCase();
+    const retryablePatterns = ['timeout', 'http 429', 'rate limit', '503', '502', '504', 'econnreset', 'transient'];
+    return retryablePatterns.some((pattern) => message.includes(pattern));
   }
 }

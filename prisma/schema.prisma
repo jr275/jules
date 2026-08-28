@@ -712,3 +712,43 @@ model KnowledgeChunk {
   @@index([knowledgeSourceId])
   @@index([contentHash])
 }
+
+model AgentMemory {
+  id                String   @id @default(uuid())
+  tenantId          String
+  agentId           String
+  type              String   // WORKING, EPISODIC, SEMANTIC
+  content           String
+  sourceExecutionId String?
+  confidence        Float    @default(0.9)
+  metadata          String   @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([agentId])
+  @@index([type])
+}
+
+model ExecutionCheckpoint {
+  id             String    @id @default(uuid())
+  tenantId       String
+  executionId    String
+  iteration      Int
+  state          String    // QUEUED, RUNNING, WAITING_APPROVAL, WAITING_TOOL, WAITING_RETRY, COMPLETED, FAILED, CANCELLED
+  messagesJson   String    @default("[]")
+  toolCallsJson  String    @default("[]")
+  idempotencyKey String?
+  metadata       String    @default("{}")
+  createdAt      DateTime  @default(now())
+
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  execution      Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([executionId])
+  @@index([idempotencyKey])
+}
