@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:real-llm": "vitest run tests/runtime.real-provider.test.ts",
     "test:real-google": "vitest run tests/connectors.google.real.test.ts",
-    "test:real-embeddings": "vitest run tests/knowledge.rag.real.test.ts"
+    "test:real-embeddings": "vitest run tests/knowledge.rag.real.test.ts",
+    "test:real-agent": "vitest run tests/agent.real-e2e.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.4.0",
