@@ -13,7 +13,13 @@
     "test:real-llm": "vitest run tests/runtime.real-provider.test.ts",
     "test:real-google": "vitest run tests/connectors.google.real.test.ts",
     "test:real-embeddings": "vitest run tests/knowledge.rag.real.test.ts",
-    "test:real-agent": "vitest run tests/agent.real-e2e.test.ts"
+    "test:real-agent": "vitest run tests/agent.real-e2e.test.ts",
+    "db:check": "tsx scripts/check-db.ts",
+    "config:check": "tsx scripts/check-config.ts",
+    "worker:check": "tsx scripts/check-worker.ts",
+    "scheduler:check": "tsx scripts/check-scheduler.ts",
+    "pilot:smoke": "tsx scripts/pilot-smoke.ts",
+    "pilot:check": "npm run typecheck && npm run test && npm run db:check && npm run config:check && npm run worker:check && npm run scheduler:check && npm run pilot:smoke"
   },
   "dependencies": {
     "@prisma/client": "^6.4.0",
