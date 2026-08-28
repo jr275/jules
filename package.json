@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:real-llm": "vitest run tests/runtime.real-provider.test.ts"
+    "test:real-llm": "vitest run tests/runtime.real-provider.test.ts",
+    "test:real-google": "vitest run tests/connectors.google.real.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.4.0",

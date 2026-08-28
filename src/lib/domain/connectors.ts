@@ -98,6 +98,48 @@ export class ConnectorService {
   }
 
   /**
+   * Refresh Google OAuth Access Token if expired.
+   */
+  static async refreshGoogleAccessToken(
+    tenantId: string,
+    credentialRef: string,
+    tokens: OAuthTokenPayload
+  ): Promise<string> {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret || !tokens.refreshToken) {
+      throw new AppError('INTEGRATION_ERROR', 'Google OAuth Refresh token or Client credentials missing');
+    }
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: tokens.refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new AppError('INTEGRATION_ERROR', `Google OAuth Token Refresh failed (${res.status}): ${errText}`);
+    }
+
+    const data = await res.json();
+    const updatedTokens: OAuthTokenPayload = {
+      ...tokens,
+      accessToken: data.access_token,
+      expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
+    };
+
+    await CredentialManager.storeOAuthTokens(tenantId, credentialRef, updatedTokens);
+    return updatedTokens.accessToken;
+  }
+
+  /**
    * Fetches real spreadsheet values via Google Sheets API v4 when OAuth token is present.
    */
   static async fetchGoogleSheetData(
@@ -109,24 +151,42 @@ export class ConnectorService {
     const tokens = await CredentialManager.getOAuthTokensServerOnly(tenantId, credentialRef);
 
     if (!tokens || !tokens.accessToken) {
-      return {
-        rows: [
-          ['Category', 'Target Operating Buffer', 'Actual Balance USD', 'Status'],
-          ['Liquid Treasury Buffer', '500,000', '2,500,000', 'SURPLUS_AVAILABLE'],
-          ['Yield Rate APY', '0.053', '0.000', 'OPTIMIZATION_RECOMMENDED'],
-        ],
-        source: `Google Sheets [ID: ${spreadsheetId}] (Fallback: Credential Ref ${credentialRef})`,
-      };
+      throw new AppError(
+        'INTEGRATION_ERROR',
+        `Google Sheets Connector is NOT_CONNECTED for tenant '${tenantId}'. Please complete OAuth connection.`
+      );
+    }
+
+    let accessToken = tokens.accessToken;
+
+    // Auto-refresh access token if expired (or within 5-min expiration buffer)
+    if (tokens.expiresAt && tokens.expiresAt <= Date.now() + 300000 && tokens.refreshToken) {
+      accessToken = await this.refreshGoogleAccessToken(tenantId, credentialRef, tokens);
     }
 
     try {
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`;
       const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
 
       if (!res.ok) {
-        throw new AppError('INTEGRATION_ERROR', `Google Sheets API returned HTTP ${res.status}`);
+        if (res.status === 401 && tokens.refreshToken) {
+          // Retry once after refreshing token
+          accessToken = await this.refreshGoogleAccessToken(tenantId, credentialRef, tokens);
+          const retryRes = await fetch(url, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (retryRes.ok) {
+            const retryData = await retryRes.json();
+            return {
+              rows: retryData.values || [],
+              source: `Google Sheets API [ID: ${spreadsheetId}]`,
+            };
+          }
+        }
+        const errText = await res.text();
+        throw new AppError('INTEGRATION_ERROR', `Google Sheets API returned HTTP ${res.status}: ${errText}`);
       }
 
       const data = await res.json();
@@ -135,6 +195,7 @@ export class ConnectorService {
         source: `Google Sheets API [ID: ${spreadsheetId}]`,
       };
     } catch (err: any) {
+      if (err instanceof AppError) throw err;
       throw new AppError('INTEGRATION_ERROR', `Failed to read Google Sheet: ${err.message}`);
     }
   }
