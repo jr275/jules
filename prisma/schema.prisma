@@ -1,0 +1,498 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Tenant {
+  id           String         @id @default(uuid())
+  name         String
+  status       String         @default("ACTIVE")
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  organizations Organization[]
+  users        User[]
+  entities     Entity[]
+  workers      Worker[]
+  connectors   Connector[]
+  policies     Policy[]
+  executions   Execution[]
+  outputs      BusinessOutput[]
+  economicValues EconomicValue[]
+  opportunities Opportunity[]
+  decisions    Decision[]
+  actions      Action[]
+  risks        Risk[]
+  forecasts    Forecast[]
+  auditEvents  AuditEvent[]
+}
+
+model Organization {
+  id           String         @id @default(uuid())
+  tenantId     String
+  name         String
+  status       String         @default("ACTIVE")
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entities     Entity[]
+  users        User[]
+  workers      Worker[]
+  executions   Execution[]
+  outputs      BusinessOutput[]
+  economicValues EconomicValue[]
+  opportunities Opportunity[]
+  decisions    Decision[]
+  actions      Action[]
+  risks        Risk[]
+  forecasts    Forecast[]
+
+  @@index([tenantId])
+}
+
+model Entity {
+  id             String         @id @default(uuid())
+  tenantId       String
+  organizationId String
+  name           String
+  country        String
+  currency       String         @default("USD")
+  status         String         @default("ACTIVE")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  executions     Execution[]
+  outputs        BusinessOutput[]
+  economicValues EconomicValue[]
+  opportunities  Opportunity[]
+  decisions      Decision[]
+  actions        Action[]
+  risks          Risk[]
+  forecasts      Forecast[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model User {
+  id             String       @id @default(uuid())
+  tenantId       String
+  organizationId String?
+  email          String       @unique
+  name           String
+  role           String       @default("ANALYST")
+  status         String       @default("ACTIVE")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model Worker {
+  id             String         @id @default(uuid())
+  tenantId       String
+  organizationId String
+  name           String
+  description    String
+  purpose        String
+  status         String         @default("ACTIVE")
+  autonomyLevel  String         @default("LEVEL_1_RECOMMEND")
+  configuration  String         @default("{}")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workerSkills   WorkerSkill[]
+  executions     Execution[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model Skill {
+  id                   String        @id @default(uuid())
+  name                 String
+  description          String
+  category             String
+  version              String        @default("1.0.0")
+  status               String        @default("ACTIVE")
+  inputs               String        @default("[]")
+  outputs              String        @default("[]")
+  dependencies         String        @default("[]")
+  riskLevel            String        @default("LOW")
+  autonomyLevel        String        @default("LEVEL_1_RECOMMEND")
+  approvalRequirements String        @default("{}")
+  metrics              String        @default("{}")
+  configuration        String        @default("{}")
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  workerSkills         WorkerSkill[]
+  skillTools           SkillTool[]
+}
+
+model WorkerSkill {
+  id        String   @id @default(uuid())
+  workerId  String
+  skillId   String
+  createdAt DateTime @default(now())
+
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  skill     Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, skillId])
+}
+
+model Tool {
+  id            String      @id @default(uuid())
+  name          String
+  description   String
+  category      String
+  configuration String      @default("{}")
+  status        String      @default("ACTIVE")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  skillTools    SkillTool[]
+}
+
+model SkillTool {
+  id        String   @id @default(uuid())
+  skillId   String
+  toolId    String
+  createdAt DateTime @default(now())
+
+  skill     Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  tool      Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([skillId, toolId])
+}
+
+model Connector {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  type                String
+  name                String
+  status              String   @default("NOT_CONFIGURED")
+  configuration       String   @default("{}")
+  credentialReference String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Policy {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  description String
+  status      String   @default("ACTIVE")
+  rules       String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Execution {
+  id             String          @id @default(uuid())
+  tenantId       String
+  organizationId String
+  entityId       String?
+  workerId       String
+  trigger        String          @default("MANUAL")
+  status         String          @default("PENDING")
+  startedAt      DateTime?
+  completedAt    DateTime?
+  error          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity         Entity?         @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  worker         Worker          @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  steps          ExecutionStep[]
+  outputs        BusinessOutput[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+  @@index([workerId])
+}
+
+model ExecutionStep {
+  id              String    @id @default(uuid())
+  executionId     String
+  type            String
+  status          String    @default("PENDING")
+  startedAt       DateTime?
+  completedAt     DateTime?
+  inputReference  String?
+  outputReference String?
+  error           String?
+  metadata        String    @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  execution       Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+}
+
+model BusinessOutput {
+  id             String           @id @default(uuid())
+  tenantId       String
+  organizationId String
+  entityId       String?
+  executionId    String?
+  type           String
+  status         String           @default("ACTIVE")
+  confidence     Float            @default(0.0)
+  source         String
+  methodology    String
+  data           String           @default("{}")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity         Entity?          @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  execution      Execution?       @relation(fields: [executionId], references: [id], onDelete: SetNull)
+
+  economicValues EconomicValue[]
+  opportunities  Opportunity[]
+  decisions      Decision[]
+  actions        Action[]
+  risks          Risk[]
+  forecasts      Forecast[]
+  provenance     DataProvenance[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+  @@index([executionId])
+}
+
+model EconomicValue {
+  id               String         @id @default(uuid())
+  tenantId         String
+  organizationId   String
+  entityId         String?
+  businessOutputId String?
+  amount           Float
+  currency         String         @default("USD")
+  period           String         @default("ANNUAL")
+  type             String
+  confidence       Float          @default(1.0)
+  source           String
+  methodology      String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity           Entity?        @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  businessOutput   BusinessOutput? @relation(fields: [businessOutputId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([organizationId])
+  @@index([businessOutputId])
+}
+
+model Opportunity {
+  id               String         @id @default(uuid())
+  tenantId         String
+  organizationId   String
+  entityId         String?
+  businessOutputId String?
+  title            String
+  description      String
+  category         String
+  estimatedValue   Float
+  currency         String         @default("USD")
+  probability      Float          @default(0.5)
+  expectedValue    Float
+  urgency          String         @default("MEDIUM")
+  effort           String         @default("MEDIUM")
+  risk             String         @default("LOW")
+  reversibility    String         @default("HIGH")
+  confidence       Float          @default(0.8)
+  status           String         @default("IDENTIFIED")
+  recommendedAction String?
+  owner            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity           Entity?        @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  businessOutput   BusinessOutput? @relation(fields: [businessOutputId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model Decision {
+  id               String         @id @default(uuid())
+  tenantId         String
+  organizationId   String
+  entityId         String?
+  businessOutputId String?
+  problem          String
+  evidence         String         @default("[]")
+  assumptions      String         @default("[]")
+  alternatives     String         @default("[]")
+  scenarios        String         @default("[]")
+  economicImpact   Float          @default(0.0)
+  risk             String         @default("LOW")
+  policyStatus     String         @default("PASSED")
+  recommendation   String
+  approvalStatus   String         @default("PENDING")
+  executionStatus  String         @default("NOT_STARTED")
+  result           String?
+  learning         String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity           Entity?        @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  businessOutput   BusinessOutput? @relation(fields: [businessOutputId], references: [id], onDelete: SetNull)
+
+  actions          Action[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model Action {
+  id                 String         @id @default(uuid())
+  tenantId           String
+  organizationId     String
+  entityId           String?
+  businessOutputId   String?
+  decisionId         String?
+  type               String
+  target             String
+  amount             Float          @default(0.0)
+  currency           String         @default("USD")
+  status             String         @default("PROPOSED")
+  approvalStatus     String         @default("PENDING")
+  executionStatus    String         @default("NOT_STARTED")
+  policyStatus       String         @default("COMPLIANT")
+  verificationStatus String         @default("UNVERIFIED")
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization       Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity             Entity?        @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  businessOutput     BusinessOutput? @relation(fields: [businessOutputId], references: [id], onDelete: SetNull)
+  decision           Decision?      @relation(fields: [decisionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model Risk {
+  id               String         @id @default(uuid())
+  tenantId         String
+  organizationId   String
+  entityId         String?
+  businessOutputId String?
+  category         String
+  exposure         Float
+  currency         String         @default("USD")
+  probability      Float          @default(0.1)
+  impact           String         @default("MEDIUM")
+  confidence       Float          @default(0.8)
+  mitigation       String
+  status           String         @default("ACTIVE")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity           Entity?        @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  businessOutput   BusinessOutput? @relation(fields: [businessOutputId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model Forecast {
+  id               String         @id @default(uuid())
+  tenantId         String
+  organizationId   String
+  entityId         String?
+  businessOutputId String?
+  horizon          String
+  expected         Float
+  lowerBound       Float
+  upperBound       Float
+  currency         String         @default("USD")
+  confidence       Float          @default(0.85)
+  methodology      String
+  source           String
+  dataType         String         @default("FORECAST")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity           Entity?        @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  businessOutput   BusinessOutput? @relation(fields: [businessOutputId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model AuditEvent {
+  id         String   @id @default(uuid())
+  tenantId   String
+  actor      String
+  event      String
+  resource   String
+  resourceId String
+  timestamp  DateTime @default(now())
+  metadata   String   @default("{}")
+  createdAt  DateTime @default(now())
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([event])
+}
+
+model DataProvenance {
+  id               String         @id @default(uuid())
+  businessOutputId String
+  sourceType       String
+  sourceId         String
+  retrievedAt      DateTime       @default(now())
+  method           String
+  quality          Float          @default(1.0)
+  coverage         Float          @default(1.0)
+  metadata         String         @default("{}")
+  createdAt        DateTime       @default(now())
+
+  businessOutput   BusinessOutput @relation(fields: [businessOutputId], references: [id], onDelete: Cascade)
+
+  @@index([businessOutputId])
+}
