@@ -5,6 +5,9 @@ import { Badge } from '@/components/ui/Badge';
 import { Metric } from '@/components/ui/Metric';
 import { Table } from '@/components/ui/Table';
 import { Status } from '@/components/ui/Status';
+import { AgentBuilder } from '@/components/agent/AgentBuilder';
+import { AgentTestLab } from '@/components/agent/AgentTestLab';
+import { Cpu, Terminal, Layers } from 'lucide-react';
 
 export const revalidate = 0;
 
@@ -28,67 +31,79 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
     return <div className="p-8 text-slate-400 font-mono text-xs">Agent not found.</div>;
   }
 
+  const skillNames = agent.agentSkills.map((s) => s.skill.name);
+  const toolNames = agent.agentTools.map((t) => t.tool.name);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between border-b border-[#1e2738] pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold font-mono text-slate-100">{agent.name}</h1>
+            <h1 className="text-xl font-bold font-mono text-slate-100 flex items-center gap-2">
+              <Cpu className="w-5 h-5 text-blue-400" />
+              {agent.name}
+            </h1>
             <Badge variant="info">v{agent.version}</Badge>
           </div>
-          <p className="text-xs text-slate-400 mt-1">{agent.description}</p>
+          <p className="text-xs text-slate-400 mt-1 font-mono">{agent.description}</p>
         </div>
         <Status type={agent.status === 'ACTIVE' ? 'ACTIVE' : 'DISABLED'} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Metric label="Success Rate" value="100%" isPositive={true} subtext="Across all executions" />
-        <Metric label="Economic Impact" value={`$${agent.outputs.reduce((a, b) => a + (b.financialImpact || 0), 0).toLocaleString()} USD`} isPositive={true} subtext="Net value created" />
+        <Metric
+          label="Economic Impact"
+          value={`$${agent.outputs.reduce((a, b) => a + (b.financialImpact || 0), 0).toLocaleString()} USD`}
+          isPositive={true}
+          subtext="Net value created"
+        />
         <Metric label="Autonomy Level" value={agent.autonomyLevel} subtext="CFO Threshold Policy Enforced" />
         <Metric label="Knowledge Sources" value={`${agent.agentKnowledge.length} Connected`} subtext="Google Sheets & Bank APIs" />
       </div>
 
-      <Card title="Agent Specification & Connected Systems">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
-          <div className="p-3 bg-[#111622] border border-[#1e2738] rounded">
-            <span className="text-slate-500 uppercase block mb-1">Skills</span>
-            <div className="space-y-1">
-              {agent.agentSkills.map(({ skill }) => (
-                <div key={skill.id} className="text-slate-200 font-semibold">{skill.name}</div>
-              ))}
-            </div>
-          </div>
-          <div className="p-3 bg-[#111622] border border-[#1e2738] rounded">
-            <span className="text-slate-500 uppercase block mb-1">Connectors</span>
-            <div className="space-y-1">
-              {agent.agentConnectors.map(({ connector }) => (
-                <div key={connector.id} className="text-blue-400 font-semibold">{connector.name}</div>
-              ))}
-            </div>
-          </div>
-          <div className="p-3 bg-[#111622] border border-[#1e2738] rounded">
-            <span className="text-slate-500 uppercase block mb-1">Knowledge Sources</span>
-            <div className="space-y-1">
-              {agent.agentKnowledge.map(({ knowledgeSource }) => (
-                <div key={knowledgeSource.id} className="text-emerald-400 font-semibold">{knowledgeSource.name}</div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </Card>
+      <div className="space-y-6">
+        <Card title="Agent Test Lab — Execution Engine">
+          <AgentTestLab
+            agentId={agent.id}
+            initialConfig={{
+              name: agent.name,
+              objective: agent.objective,
+              skills: skillNames,
+              tools: toolNames,
+              autonomyLevel: agent.autonomyLevel,
+            }}
+          />
+        </Card>
 
-      <Card title="Agent Output History & Provenance">
-        <Table
-          headers={['Type', 'Summary', 'Impact', 'Source Provenance', 'Confidence']}
-          rows={agent.outputs.map((o) => [
-            <Badge key="t" variant="info">{o.type}</Badge>,
-            o.summary,
-            <span key="imp" className="font-mono text-emerald-400">+${o.financialImpact.toLocaleString()}</span>,
-            <span key="src" className="font-mono text-slate-400 text-xs">{o.source}</span>,
-            <span key="conf" className="font-mono">{Math.round(o.confidence * 100)}%</span>,
-          ])}
-        />
-      </Card>
+        <Card title="Agent Specification & Configuration Matrix">
+          <AgentBuilder
+            initialAgent={{
+              id: agent.id,
+              name: agent.name,
+              description: agent.description,
+              objective: agent.objective,
+              rolePersona: agent.rolePersona,
+              autonomyLevel: agent.autonomyLevel,
+              skills: skillNames,
+              tools: toolNames,
+            }}
+          />
+        </Card>
+
+        <Card title="Recorded Execution History & Output Log">
+          <Table
+            headers={['Type', 'Summary', 'Financial Impact', 'Source Provenance', 'Confidence Score']}
+            rows={agent.outputs.map((o) => [
+              <Badge key="t" variant="info">{o.type}</Badge>,
+              o.summary,
+              <span key="imp" className="font-mono text-emerald-400 font-bold">+${o.financialImpact.toLocaleString()} USD</span>,
+              <span key="src" className="font-mono text-slate-400 text-xs">{o.source}</span>,
+              <span key="conf" className="font-mono font-bold">{Math.round(o.confidence * 100)}%</span>,
+            ])}
+          />
+        </Card>
+      </div>
     </div>
   );
 }

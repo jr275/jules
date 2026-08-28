@@ -34,7 +34,7 @@ export class CredentialManager {
   }
 
   static sanitizePayload<T extends Record<string, unknown>>(payload: T): T {
-    const sensitiveKeys = ['password', 'secret', 'apiKey', 'token', 'privateKey', 'authHeader', 'credential'];
+    const sensitiveKeys = ['password', 'secret', 'apikey', 'token', 'privatekey', 'authheader', 'credential'];
     const sanitized = { ...payload };
 
     for (const key of Object.keys(sanitized)) {

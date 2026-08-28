@@ -1,4 +1,5 @@
 import { AppError } from './types';
+import { CredentialManager } from './credentials';
 
 export type ConnectorCategory = 'GOOGLE' | 'MICROSOFT' | 'FINANCE' | 'BUSINESS' | 'DATA';
 
@@ -7,7 +8,7 @@ export interface ConnectorDefinition {
   category: ConnectorCategory;
   name: string;
   description: string;
-  authMethod: 'OAUTH2' | 'API_KEY' | 'MTLS' | 'DATABASE_URL';
+  authMethod: 'OAUTH2' | 'API_KEY' | 'MTLS' | 'DATABASE_URL' | 'FILE_STREAM';
   requiredScopes: string[];
 }
 
@@ -29,20 +30,28 @@ export const SUPPORTED_CONNECTORS: ConnectorDefinition[] = [
     requiredScopes: ['https://www.googleapis.com/auth/drive.readonly'],
   },
   {
-    type: 'GOOGLE_DOCS',
-    category: 'GOOGLE',
-    name: 'Google Docs',
-    description: 'Generate CFO executive commentary and board memos',
-    authMethod: 'OAUTH2',
-    requiredScopes: ['https://www.googleapis.com/auth/documents'],
-  },
-  {
     type: 'GMAIL',
     category: 'GOOGLE',
     name: 'Gmail',
     description: 'Send automated executive summaries and payment notifications',
     authMethod: 'OAUTH2',
     requiredScopes: ['https://www.googleapis.com/auth/gmail.send'],
+  },
+  {
+    type: 'POSTGRESQL',
+    category: 'DATA',
+    name: 'PostgreSQL Database',
+    description: 'Direct query connection to enterprise data warehouse',
+    authMethod: 'DATABASE_URL',
+    requiredScopes: ['readonly'],
+  },
+  {
+    type: 'FILE_STREAM',
+    category: 'DATA',
+    name: 'Secure Local / Cloud Storage Upload',
+    description: 'Parse CSVs, XLSX, and financial PDF bank statements',
+    authMethod: 'FILE_STREAM',
+    requiredScopes: ['file.read'],
   },
   {
     type: 'BANK_API',
@@ -74,8 +83,17 @@ export class ConnectorService {
         return { text: 'REAUTHORIZATION REQUIRED', color: 'bg-amber-500' };
       case 'ERROR':
         return { text: 'CONNECTION ERROR', color: 'bg-rose-500' };
+      case 'NOT_CONNECTED':
       default:
-        return { text: 'NOT CONFIGURED', color: 'bg-slate-500' };
+        return { text: 'NOT CONFIGURED / NOT CONNECTED', color: 'bg-slate-500' };
     }
+  }
+
+  /**
+   * Safely formats credential reference without exposing secrets.
+   */
+  static getSafeCredentialSummary(credentialReference?: string | null): string {
+    if (!credentialReference) return 'NOT_CONFIGURED';
+    return `Vault Ref: ${credentialReference.substring(0, 16)}...`;
   }
 }
