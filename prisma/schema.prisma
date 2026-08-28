@@ -8,49 +8,55 @@ generator client {
 }
 
 model Tenant {
-  id           String         @id @default(uuid())
-  name         String
-  status       String         @default("ACTIVE")
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id               String            @id @default(uuid())
+  name             String
+  status           String            @default("ACTIVE")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  organizations Organization[]
-  users        User[]
-  entities     Entity[]
-  workers      Worker[]
-  connectors   Connector[]
-  policies     Policy[]
-  executions   Execution[]
-  outputs      BusinessOutput[]
-  economicValues EconomicValue[]
-  opportunities Opportunity[]
-  decisions    Decision[]
-  actions      Action[]
-  risks        Risk[]
-  forecasts    Forecast[]
-  auditEvents  AuditEvent[]
+  organizations    Organization[]
+  users            User[]
+  entities         Entity[]
+  agents           Agent[]
+  workers          Worker[]
+  connectors       Connector[]
+  policies         Policy[]
+  executions       Execution[]
+  outputs          BusinessOutput[]
+  economicValues   EconomicValue[]
+  opportunities    Opportunity[]
+  decisions        Decision[]
+  actions          Action[]
+  risks            Risk[]
+  forecasts        Forecast[]
+  auditEvents      AuditEvent[]
+  knowledgeSources KnowledgeSource[]
+  tasks            Task[]
 }
 
 model Organization {
-  id           String         @id @default(uuid())
-  tenantId     String
-  name         String
-  status       String         @default("ACTIVE")
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id               String            @id @default(uuid())
+  tenantId         String
+  name             String
+  status           String            @default("ACTIVE")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  entities     Entity[]
-  users        User[]
-  workers      Worker[]
-  executions   Execution[]
-  outputs      BusinessOutput[]
-  economicValues EconomicValue[]
-  opportunities Opportunity[]
-  decisions    Decision[]
-  actions      Action[]
-  risks        Risk[]
-  forecasts    Forecast[]
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entities         Entity[]
+  users            User[]
+  agents           Agent[]
+  workers          Worker[]
+  executions       Execution[]
+  outputs          BusinessOutput[]
+  economicValues   EconomicValue[]
+  opportunities    Opportunity[]
+  decisions        Decision[]
+  actions          Action[]
+  risks            Risk[]
+  forecasts        Forecast[]
+  knowledgeSources KnowledgeSource[]
+  tasks            Task[]
 
   @@index([tenantId])
 }
@@ -94,9 +100,58 @@ model User {
 
   tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  agentsOwned    Agent[]      @relation("AgentOwner")
 
   @@index([tenantId])
   @@index([organizationId])
+}
+
+model Agent {
+  id             String         @id @default(uuid())
+  tenantId       String
+  organizationId String
+  ownerId        String?
+  name           String
+  description    String
+  objective      String
+  rolePersona    String
+  instructions   String         @default("")
+  status         String         @default("ACTIVE") // ACTIVE, DRAFT, PAUSED, DISABLED
+  autonomyLevel  String         @default("LEVEL_1_RECOMMEND")
+  version        Int            @default(1)
+  configuration  String         @default("{}")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner          User?          @relation("AgentOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  agentSkills    AgentSkill[]
+  agentTools     AgentTool[]
+  agentConnectors AgentConnector[]
+  agentKnowledge AgentKnowledgeSource[]
+  versions       AgentVersion[]
+  triggers       AgentTrigger[]
+  tasks          Task[]
+  executions     Execution[]
+  outputs        BusinessOutput[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model AgentVersion {
+  id            String   @id @default(uuid())
+  agentId       String
+  version       Int
+  configuration String   // Full snapshot JSON of agent configuration at version
+  changelog     String   @default("Version updated")
+  createdAt     DateTime @default(now())
+
+  agent         Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, version])
 }
 
 model Worker {
@@ -140,7 +195,20 @@ model Skill {
   updatedAt            DateTime      @updatedAt
 
   workerSkills         WorkerSkill[]
+  agentSkills          AgentSkill[]
   skillTools           SkillTool[]
+}
+
+model AgentSkill {
+  id        String   @id @default(uuid())
+  agentId   String
+  skillId   String
+  createdAt DateTime @default(now())
+
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  skill     Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, skillId])
 }
 
 model WorkerSkill {
@@ -160,12 +228,28 @@ model Tool {
   name          String
   description   String
   category      String
+  inputSchema   String      @default("{}")
+  outputSchema  String      @default("{}")
+  riskLevel     String      @default("LOW")
   configuration String      @default("{}")
   status        String      @default("ACTIVE")
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   skillTools    SkillTool[]
+  agentTools    AgentTool[]
+}
+
+model AgentTool {
+  id        String   @id @default(uuid())
+  agentId   String
+  toolId    String
+  createdAt DateTime @default(now())
+
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  tool      Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, toolId])
 }
 
 model SkillTool {
@@ -183,7 +267,8 @@ model SkillTool {
 model Connector {
   id                  String   @id @default(uuid())
   tenantId            String
-  type                String
+  type                String   // GOOGLE_DRIVE, GOOGLE_SHEETS, GOOGLE_DOCS, GMAIL, GOOGLE_CALENDAR, ONEDRIVE, EXCEL_ONLINE, OUTLOOK, BANK_API, SAP_ERP, STRIPE, POSTGRES
+  category            String   @default("FINANCE") // GOOGLE, MICROSOFT, FINANCE, BUSINESS, DATA
   name                String
   status              String   @default("NOT_CONFIGURED")
   configuration       String   @default("{}")
@@ -192,8 +277,94 @@ model Connector {
   updatedAt           DateTime @updatedAt
 
   tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agentConnectors     AgentConnector[]
+  knowledgeSources    KnowledgeSource[]
 
   @@index([tenantId])
+}
+
+model AgentConnector {
+  id          String    @id @default(uuid())
+  agentId     String
+  connectorId String
+  createdAt   DateTime  @default(now())
+
+  agent       Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, connectorId])
+}
+
+model KnowledgeSource {
+  id             String   @id @default(uuid())
+  tenantId       String
+  organizationId String
+  connectorId    String?
+  name           String
+  type           String   // GOOGLE_SHEET, GOOGLE_DRIVE_FOLDER, PDF_DOCUMENT, CSV_FILE, DATABASE_TABLE, URL_ENDPOINT
+  uri            String   // Resource URI or URL
+  status         String   @default("ACTIVE")
+  metadata       String   @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector      Connector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+
+  agentKnowledge AgentKnowledgeSource[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+}
+
+model AgentKnowledgeSource {
+  id                String          @id @default(uuid())
+  agentId           String
+  knowledgeSourceId String
+  createdAt         DateTime        @default(now())
+
+  agent             Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  knowledgeSource   KnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, knowledgeSourceId])
+}
+
+model AgentTrigger {
+  id            String   @id @default(uuid())
+  agentId       String
+  type          String   // MANUAL, SCHEDULE, EVENT, WEBHOOK, THRESHOLD, ANOMALY, DATA_CHANGE
+  configuration String   @default("{}")
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  agent         Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+}
+
+model Task {
+  id             String      @id @default(uuid())
+  tenantId       String
+  organizationId String
+  agentId        String
+  title          String
+  description    String
+  status         String      @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
+  priority       String      @default("MEDIUM")
+  payload        String      @default("{}")
+  result         String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent          Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  executions     Execution[]
+
+  @@index([tenantId])
+  @@index([agentId])
 }
 
 model Policy {
@@ -216,7 +387,9 @@ model Execution {
   tenantId       String
   organizationId String
   entityId       String?
-  workerId       String
+  workerId       String?
+  agentId        String?
+  taskId         String?
   trigger        String          @default("MANUAL")
   status         String          @default("PENDING")
   startedAt      DateTime?
@@ -228,13 +401,16 @@ model Execution {
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   entity         Entity?         @relation(fields: [entityId], references: [id], onDelete: SetNull)
-  worker         Worker          @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  worker         Worker?         @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  agent          Agent?          @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  task           Task?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
   steps          ExecutionStep[]
   outputs        BusinessOutput[]
 
   @@index([tenantId])
   @@index([organizationId])
   @@index([workerId])
+  @@index([agentId])
 }
 
 model ExecutionStep {
@@ -262,11 +438,14 @@ model BusinessOutput {
   organizationId String
   entityId       String?
   executionId    String?
-  type           String
+  agentId        String?
+  type           String           // INSIGHT, RECOMMENDATION, DECISION, REPORT, FORECAST, ALERT, OPPORTUNITY, ACTION_PROPOSAL, EXECUTED_ACTION, EXCEPTION
   status         String           @default("ACTIVE")
   confidence     Float            @default(0.0)
   source         String
   methodology    String
+  summary        String           @default("")
+  financialImpact Float           @default(0.0)
   data           String           @default("{}")
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -275,6 +454,7 @@ model BusinessOutput {
   organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   entity         Entity?          @relation(fields: [entityId], references: [id], onDelete: SetNull)
   execution      Execution?       @relation(fields: [executionId], references: [id], onDelete: SetNull)
+  agent          Agent?           @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   economicValues EconomicValue[]
   opportunities  Opportunity[]
@@ -283,10 +463,27 @@ model BusinessOutput {
   risks          Risk[]
   forecasts      Forecast[]
   provenance     DataProvenance[]
+  destinations   OutputDestination[]
 
   @@index([tenantId])
   @@index([organizationId])
   @@index([executionId])
+  @@index([agentId])
+}
+
+model OutputDestination {
+  id               String         @id @default(uuid())
+  businessOutputId String
+  type             String         // DASHBOARD, EMAIL, GOOGLE_DOCS, GOOGLE_SHEETS, SLACK, TEAMS, PDF, WEBHOOK, APPROVAL_QUEUE
+  target           String         // Target email address, channel ID, file ID, or webhook URL
+  status           String         @default("PENDING") // PENDING, DELIVERED, FAILED
+  deliveredAt      DateTime?
+  metadata         String         @default("{}")
+  createdAt        DateTime       @default(now())
+
+  businessOutput   BusinessOutput @relation(fields: [businessOutputId], references: [id], onDelete: Cascade)
+
+  @@index([businessOutputId])
 }
 
 model EconomicValue {
@@ -483,8 +680,8 @@ model AuditEvent {
 model DataProvenance {
   id               String         @id @default(uuid())
   businessOutputId String
-  sourceType       String
-  sourceId         String
+  sourceType       String         // GOOGLE_SHEETS, GOOGLE_DRIVE, BANK_API, SAP_ERP, USER_INPUT, MODEL_ESTIMATE, SIMULATION
+  sourceId         String         // URI, File ID, or Bank Account ID
   retrievedAt      DateTime       @default(now())
   method           String
   quality          Float          @default(1.0)

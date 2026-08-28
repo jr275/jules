@@ -12,7 +12,12 @@ interface NavItem {
 
 const mainNav: NavItem[] = [
   { label: 'Executive Dashboard', href: '/dashboard' },
-  { label: 'Worker Studio', href: '/studio' },
+  { label: 'Agent Fleet & Studio', href: '/studio/workers' },
+  { label: 'Agent Builder', href: '/studio/agents/new' },
+  { label: 'Agent Observatory', href: '/observatory' },
+  { label: 'Connectors Hub', href: '/connectors' },
+  { label: 'Knowledge Sources', href: '/knowledge' },
+  { label: 'Structured Outputs', href: '/outputs' },
   { label: 'Opportunities', href: '/opportunities' },
   { label: 'Decisions', href: '/decisions' },
   { label: 'Executions', href: '/executions' },
@@ -45,9 +50,11 @@ export const Header: React.FC = () => {
 
   const commandItems = [
     { id: '1', title: 'Open Executive Command Center', category: 'NAV', action: () => (window.location.href = '/dashboard') },
-    { id: '2', title: 'Launch Cash Optimization Worker', category: 'WORKER', action: () => (window.location.href = '/studio/workers') },
-    { id: '3', title: 'View Identified Opportunities', category: 'FINANCE', action: () => (window.location.href = '/opportunities') },
-    { id: '4', title: 'Review Pending CFO Approvals', category: 'APPROVALS', action: () => (window.location.href = '/approvals') },
+    { id: '2', title: 'Build New Financial Agent', category: 'AGENT', action: () => (window.location.href = '/studio/agents/new') },
+    { id: '3', title: 'Open Agent Observatory', category: 'OBSERVATORY', action: () => (window.location.href = '/observatory') },
+    { id: '4', title: 'View Connectors Hub', category: 'CONNECTORS', action: () => (window.location.href = '/connectors') },
+    { id: '5', title: 'View Knowledge Sources', category: 'KNOWLEDGE', action: () => (window.location.href = '/knowledge') },
+    { id: '6', title: 'Review Pending CFO Approvals', category: 'APPROVALS', action: () => (window.location.href = '/approvals') },
   ];
 
   return (
@@ -71,7 +78,7 @@ export const Header: React.FC = () => {
             className="hidden md:flex items-center gap-2 px-3 py-1 bg-[#131926] border border-[#1e2738] rounded text-xs text-slate-400 hover:text-slate-200 transition-colors"
           >
             <span className="font-mono text-[10px]">⌘K</span>
-            <span>Search economic actions or workers...</span>
+            <span>Search economic actions, agents, connectors...</span>
           </button>
         </div>
 
@@ -96,7 +103,7 @@ export const Sidebar: React.FC = () => {
       <div className="space-y-6 overflow-y-auto pr-1">
         <div>
           <div className="text-[10px] font-mono font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">
-            Core OS
+            Agent Platform OS
           </div>
           <nav className="space-y-0.5">
             {mainNav.map((item) => {
