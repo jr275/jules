@@ -1,0 +1,47 @@
+{
+  "name": "tmp-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "worker": "npx tsx src/scripts/worker.ts",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:production-readiness": "vitest run tests/production.readiness.test.ts",
+    "test:real-llm": "vitest run tests/runtime.real-provider.test.ts",
+    "test:real-google": "vitest run tests/connectors.google.real.test.ts",
+    "test:real-embeddings": "vitest run tests/knowledge.rag.real.test.ts",
+    "test:real-agent": "vitest run tests/agent.real-e2e.test.ts",
+    "db:check": "tsx scripts/check-db.ts",
+    "config:check": "tsx scripts/check-config.ts",
+    "worker:check": "tsx scripts/check-worker.ts",
+    "scheduler:check": "tsx scripts/check-scheduler.ts",
+    "pilot:smoke": "tsx scripts/pilot-smoke.ts",
+    "pilot:check": "npm run typecheck && npm run test && npm run db:check && npm run config:check && npm run worker:check && npm run scheduler:check && npm run pilot:smoke"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.4.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.475.0",
+    "next": "15.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.0.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.1.7",
+    "postcss": "^8",
+    "prisma": "^6.4.0",
+    "tailwindcss": "^4.0.7",
+    "typescript": "^5",
+    "vitest": "^3.0.5"
+  }
+}
